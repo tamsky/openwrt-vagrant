@@ -51,10 +51,10 @@ Vagrant.configure(2) do |config|
     # vb.gui = true
  
     # Customize the amount of memory on the VM (in MB):
-    vb.memory = "6144"
+    vb.memory = "10144"
 
     # Customzie the amount of cpu cores visible to the VM:
-    vb.cpus = 4
+    vb.cpus = 8
   end
   
   # View the documentation for the provider you are using for more
@@ -68,21 +68,38 @@ Vagrant.configure(2) do |config|
     # based on http://wiki.openwrt.org/doc/howto/buildroot.exigence
     export DEBIAN_FRONTEND=noninteractive
     export OPENWRT_RELEASE=15.05
+
+# 15.05.1 master on (2016-04-22):
+#    export GIT_HASH=8329a3c561c41a6019fd70f37d2b3141779b259c
+# 15.05.1 release:
     export GIT_HASH=87e9837a818a71f39c445ee33569279bd78451de
     sudo apt-get update
     sudo apt-get install -y git-core build-essential libssl-dev libncurses5-dev unzip subversion mercurial gettext gawk wget
     sudo -u vagrant git clone git://git.openwrt.org/$OPENWRT_RELEASE/openwrt.git openwrt.git
     cd openwrt.git
     sudo -u vagrant git checkout $GIT_HASH
-    sudo -u vagrant make defconfig
-    sudo -u vagrant make prereq
+#    sudo -u vagrant make defconfig
+#    sudo -u vagrant make prereq
     sudo -u vagrant ./scripts/feeds update -a
-    sudo -u vagrant ./scripts/feeds install -a
+    # avoid telephony: download broken
+    # sudo -u vagrant ./scripts/feeds install -a
+    sudo -u vagrant ./scripts/feeds install luci packages management routing
+    if [ -f "/vagrant_data/patches/*" ]; then
+       for patch_file in /vagrant_data/patches/* ; do
+          patch -p1 < $patch_file
+       done
+    fi
     if [ -f "/vagrant_data/openwrt.config.autobuild" ]; then
       # if there is a file called openwrt.config.autobuild, automatically build it
-      sudo -u vagrant cp /vagrant_data/openwrt.config.autobuild .config
       echo "using configuration file openwrt.config.autobuild"
-      sudo -u vagrant make -j$(nproc) || exit
+      sudo -u vagrant cp /vagrant_data/openwrt.config.autobuild .config
+      echo "disabling compile-only packages and disable SDK"
+      sudo -u vagrant make defconfig
+      sudo -u vagrant sed --in-place=.bak -e 's/=m$/=n/g' -e 's/^CONFIG_SDK=y$/CONFIG_SDK=n/' .config
+      echo "making prereq"
+      sudo -u vagrant make prereq  
+      echo "final make"
+      sudo -u vagrant time make -j$(nproc) V=s 2>&1 | sudo -u vagrant tee build.log | grep -i error || exit
       echo -e "\\nbuild successful!"
       mkdir -p /vagrant_data/build
       cp bin/*/openwrt-*.{img,bin} /vagrant_data/build
