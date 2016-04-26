@@ -84,28 +84,36 @@ Vagrant.configure(2) do |config|
     # avoid telephony: download broken
     # sudo -u vagrant ./scripts/feeds install -a
     sudo -u vagrant ./scripts/feeds install luci packages management routing
-    if [ -f "/vagrant_data/patches/*" ]; then
-       for patch_file in /vagrant_data/patches/* ; do
+    if [ -f /vagrant_data/patches/*.patch ]; then
+       for patch_file in /vagrant_data/patches/*.patch ; do
           patch -p1 < $patch_file
        done
+    fi
+    if [ -d /vagrant_data/patches/sync ]; then
+       sudo -u vagrant rsync -a /vagrant_data/patches/sync/ /home/vagrant/openwrt.git/
     fi
     if [ -f "/vagrant_data/openwrt.config.autobuild" ]; then
       # if there is a file called openwrt.config.autobuild, automatically build it
       echo "using configuration file openwrt.config.autobuild"
       sudo -u vagrant cp /vagrant_data/openwrt.config.autobuild .config
       echo "disabling compile-only packages and disable SDK"
-      sudo -u vagrant make defconfig
       sudo -u vagrant sed --in-place=.bak -e 's/=m$/=n/g' -e 's/^CONFIG_SDK=y$/CONFIG_SDK=n/' .config
+      sudo -u vagrant make defconfig
       echo "making prereq"
       sudo -u vagrant make prereq  
       echo "final make"
-      sudo -u vagrant time make -j$(nproc) V=s 2>&1 | sudo -u vagrant tee build.log | grep -i error || exit
+
+      set -o pipefail
+      #  | grep -i error
+      sudo -u vagrant time make -j$(nproc) V=s 2>&1 | sudo -u vagrant tee build.log || exit
+
       echo -e "\\nbuild successful!"
       mkdir -p /vagrant_data/build
       cp bin/*/openwrt-*.{img,bin} /vagrant_data/build
       cp .config /vagrant_data/build/config
       echo -e "copied the following files to 'build' directory:"
       ls /vagrant_data/build
+      rsync -a bin/*/packages/ /vagrant_data/build/packages/
       exit
     elif [ -f "/vagrant_data/openwrt.config" ]; then
       # if there is a file called openwrt.config, use it as configuration file
